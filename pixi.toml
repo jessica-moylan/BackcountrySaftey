@@ -1,0 +1,20 @@
+[workspace]
+channels = ["conda-forge"]
+name = "AvalancheSaftey"
+platforms = ["linux-64", "win-64"]
+version = "0.1.0"
+
+[tasks]
+run-program = "python main.py"
+check = "pre-commit run --all-files"
+
+[dependencies]
+python = ">=3.13.5,<3.14"
+python-dotenv = ">=1.1.1,<2"
+requests = ">=2.32.4,<3"
+ipython = ">=9.4.0,<10"
+beautifulsoup4 = ">=4.13.4,<5"
+ipykernel = ">=6.30.1,<7"
+pip = ">=25.2,<26"
+ruff = ">=0.14.11,<0.15"
+pre-commit = ">=4.5.1,<5"
