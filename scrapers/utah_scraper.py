@@ -9,6 +9,8 @@ import re
 from .scraper_base import BaseScraper
 from .snowpilot import SnowPilotClient
 from .exceptions import NetworkError
+from .utils import convert_to_inches, clean_numeric
+from database.db_manager import DatabaseManager
 
 logger = logging.getLogger(__name__)
 
@@ -287,9 +289,11 @@ class UtahScraper(BaseScraper):
             "sub-region_name": subregion,
             "latitude": latitude,
             "longitude": longitude,
-            "elevation_ft": elevation,
+            "elevation_ft": int(re.sub(r"[\[\],'`\"]", "", elevation.replace(",", "")))
+            if elevation is not None and elevation.lower() != "unknown"
+            else None,
             "aspect": aspect,
-            "slope_angle": slope_angle,
+            "slope_angle": int(slope_angle) if slope_angle is not None else None,
         }
         return base_info
 
@@ -307,7 +311,12 @@ class UtahScraper(BaseScraper):
             tuple: (base_info dict, avalanche_information dict)
         """
         logger.debug(f"Normalizing avalanche report: {web_url}")
+
         base_info = self._get_base_info(web_url, web_access)
+        depth_raw = self.get_field_value(web_access, "Depth")
+        width_raw = self.get_field_value(web_access, "Width")
+        vertical_raw = self.get_field_value(web_access, "Vertical")
+
         avalanche_information = {
             "report_id": web_url.split("/")[-1],
             "avalanche_date": datetime.strptime(
@@ -320,11 +329,17 @@ class UtahScraper(BaseScraper):
             "avalanche_type": self.get_field_value(web_access, "Avalanche Type"),
             "problem": self.get_field_value(web_access, "Avalanche Problem"),
             "weak_layer": self.get_field_value(web_access, "Weak Layer"),
-            "depth": self.get_field_value(web_access, "Depth"),
-            "width_feet": self.get_field_value(web_access, "Width"),
-            "vertical_feet": self.get_field_value(web_access, "Vertical"),
-            "Caught": self.get_field_value(web_access, "Caught"),
-            "Carried": self.get_field_value(web_access, "Carried"),
+            "depth": int(convert_to_inches(depth_raw))
+            if depth_raw is not None and depth_raw.lower() != "unknown"
+            else None,
+            "width_feet": clean_numeric(width_raw)
+            if width_raw is not None and width_raw.lower() != "unknown"
+            else None,
+            "vertical_feet": clean_numeric(vertical_raw)
+            if vertical_raw is not None and vertical_raw.lower() != "unknown"
+            else None,
+            "caught": self.get_field_value(web_access, "Caught"),
+            "carried": self.get_field_value(web_access, "Carried"),
         }
         return base_info, avalanche_information
 
@@ -382,8 +397,6 @@ class UtahScraper(BaseScraper):
         """
         logger.info(f"Fetching data for {self.year}-{self.month}-{self.day}")
         table_links = self.extract_report_links()
-        logger.info(f"Found {len(table_links)} reports to process")
-        results = []
 
         for link in table_links:
             page_url = f"https://utahavalanchecenter.org{link}"
@@ -396,19 +409,18 @@ class UtahScraper(BaseScraper):
                 first_word = link.split("/")[1]
                 if first_word == "avalanche":
                     data = self._normalize_avalanche(page_url, web_access)
-                    results.append(data)
+                    DatabaseManager().insert_report(data[0], data[1], "avalanche")
                 elif first_word == "observation":
                     data = self._normalize_observation(page_url, web_access)
-                    results.append(data)
+                    print(f"Inserting observation report: {data[0]['report_id']}")
+                    DatabaseManager().insert_report(data[0], data[1], "observation")
                 else:
                     logger.error(f"Unsupported report type: {first_word}")
                     raise ValueError(f"{first_word} data is not currently supported")
             except requests.RequestException as e:
                 logger.error(f"Failed to fetch {page_url}: {e}")
                 raise NetworkError(page_url, "Could not reach report page")
-
-        logger.info(f"Successfully processed {len(results)} reports")
-        return results
+        return table_links
 
     def extract_report_links(self) -> list[str]:
         """

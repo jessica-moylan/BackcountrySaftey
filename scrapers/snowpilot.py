@@ -91,7 +91,8 @@ class SnowPilotClient:
 
     @property
     def slope_angle(self) -> str | None:
-        return self._root.get("incline") if self._root else None
+        incline = self._root.get("incline") if self._root else None
+        return incline if incline else None
 
     @property
     def elevation(self) -> str | None:

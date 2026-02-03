@@ -27,8 +27,8 @@ if __name__ == "__main__":
         logger.info("Starting Backcountry Safety scraper")
         utah = UtahScraper(get_yesterday_date())
         data = utah.get_data()
-
-        logger.info(f"Successfully scraped {len(data)} reports")
+        print(data)
+        logger.info(f"{len(data)} reports were collected for {get_yesterday_date()}")
 
     except ScraperError as e:
         logger.error(f"Scraper error: {e}")
