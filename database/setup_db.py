@@ -1,6 +1,7 @@
 import logging
 import sys
 from pathlib import Path
+from database.db_manager import DatabaseManager
 
 """
 Database initialization and setup script.
@@ -10,8 +11,6 @@ Run using pixi run python database/setup_db.py
 
 # Add parent directory to path to import database module
 sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from database.db_manager import DatabaseManager
 
 logging.basicConfig(
     level=logging.INFO,
@@ -52,9 +51,7 @@ def verify_setup():
         with db.get_connection() as conn:
             with conn.cursor() as cur:
                 # Check PostGIS extension
-                cur.execute(
-                    "SELECT PostGIS_Version();"
-                )
+                cur.execute("SELECT PostGIS_Version();")
                 postgis_version = cur.fetchone()[0]
                 logger.info(f"PostGIS version: {postgis_version}")
 

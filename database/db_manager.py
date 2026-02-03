@@ -2,7 +2,6 @@ import logging
 from contextlib import contextmanager
 from typing import Any
 import psycopg2
-from psycopg2.extensions import connection
 import os
 from dotenv import load_dotenv
 
