@@ -6,10 +6,12 @@ from typing import Any
 import time
 import re
 
+from snowpylot import caaml_url_parser
+
 from .scraper_base import BaseScraper
-from .snowpilot import SnowPilotClient
 from .exceptions import NetworkError
-from .utils import convert_to_inches, clean_numeric
+from .utils import convert_to_inches, clean_numeric, snowpilot_aspect_to_full_direction
+
 from database.db_manager import DatabaseManager
 
 logger = logging.getLogger(__name__)
@@ -25,7 +27,6 @@ HEADERS = {
     "Upgrade-Insecure-Requests": "1",
 }
 
-# Mapping of Utah avalanche forecast region names to their numeric IDs
 lookup = {
     "Logan": 1,
     "Ogden": 2,
@@ -68,6 +69,7 @@ class UtahScraper(BaseScraper):
         self.url = f"https://utahavalanchecenter.org/observations?term=All&fodv%5Bmin%5D%5Bdate%5D={self.month}%2F{self.day}%2F{self.year}&fodv%5Bmax%5D%5Bdate%5D={self.month}%2F{self.day}%2F{self.year}"
         self.session = requests.Session()
         self.session.headers.update(HEADERS)
+        self.db = DatabaseManager()
         logger.info(
             f"Initialized UtahScraper for date: {self.year}-{self.month}-{self.day}"
         )
@@ -90,8 +92,18 @@ class UtahScraper(BaseScraper):
         value_div = label.find_next_sibling("div")
         return value_div.get_text(strip=True) if value_div else None
 
+    def get_snowpilot_link(self, web_access: BeautifulSoup):
+        snowpilot = self.get_field_value(web_access, "Snow Pilot URL")
+        if snowpilot is None:
+            return snowpilot
+        try:
+            return caaml_url_parser(snowpilot)
+        except Exception as e:
+            logger.error(f"Error parsing SnowPilot URL: {e}")
+            return None
+
     def get_lat_lon(
-        self, web_access: BeautifulSoup
+        self, snowpit, web_access: BeautifulSoup
     ) -> tuple[float | None, float | None]:
         """
         Extract latitude and longitude coordinates from observation page.
@@ -118,23 +130,13 @@ class UtahScraper(BaseScraper):
             latitude = float(match.group(2))
             logger.debug(f"Extracted coordinates from map: ({longitude}, {latitude})")
             return longitude, latitude
-        else:  # try to check if there is a snowprofile
-            logger.debug("Coordinates not found in map, checking SnowPilot")
-            snowpilot_table = self.get_field_value(web_access, "Snow Pilot URL")
-            if snowpilot_table is None:
-                logger.debug("No SnowPilot URL available")
+        else:
+            if snowpit is None:
                 return longitude, latitude
-            try:
-                snowpilot = SnowPilotClient(snowpilot_table)
-                longitude = snowpilot.longitude
-                latitude = snowpilot.latitude
-                logger.debug(
-                    f"Extracted coordinates from SnowPilot: ({longitude}, {latitude})"
-                )
-                return longitude, latitude
-            except Exception as e:
-                logger.exception(f"Error parsing Snow Pilot XML: {e}")
-                return longitude, latitude
+            return (
+                snowpit.core_info.location.longitude,
+                snowpit.core_info.location.latitude,
+            )
 
     def get_region(self, web_access: BeautifulSoup) -> tuple[str, str]:
         """
@@ -149,11 +151,10 @@ class UtahScraper(BaseScraper):
         region = self.get_field_value(web_access, "Region")
         parts = [p.strip() for p in region.split("»")]
         parent, subregion = parts[0], parts[-1]
-        logger.debug(f"Extracted region: {parent} » {subregion}")
         return parent, subregion
 
     def get_snow_profile(
-        self, web_access: BeautifulSoup
+        self, snowpit, web_access: BeautifulSoup
     ) -> tuple[str | None, str | None, str | None]:
         """
         Extract snow profile information (aspect, elevation, slope angle).
@@ -168,7 +169,6 @@ class UtahScraper(BaseScraper):
             tuple: (aspect, elevation, slope_angle) or (None, None, None) if unavailable.
         """
         aspect, elevation, slope_angle = None, None, None
-        # try to get the information for snow profile from UTAC
         aspect = self.get_field_value(web_access, "Aspect")
         elevation = self.get_field_value(web_access, "Elevation")
         slope_angle = self.get_field_value(web_access, "Slope Angle")
@@ -180,28 +180,13 @@ class UtahScraper(BaseScraper):
 
         # is there any of the values missing
         if aspect is not None and elevation is not None and slope_angle is not None:
-            logger.debug(
-                f"Extracted snow profile: aspect={aspect}, elevation={elevation}, angle={slope_angle}"
-            )
             return aspect, elevation, slope_angle
-
-        # is there a snow profile table?
-        logger.debug("Some snow profile data missing, checking SnowPilot")
-        snowpilot_table = self.get_field_value(web_access, "Snow Pilot URL")
-        if snowpilot_table is None:
-            logger.debug("No SnowPilot URL available for snow profile data")
-            return aspect, elevation, slope_angle
-        try:
-            snowpilot = SnowPilotClient(snowpilot_table)
-            aspect = aspect or snowpilot.aspect
-            slope_angle = slope_angle or snowpilot.slope_angle
-            elevation = elevation or snowpilot.elevation
-            logger.debug(
-                f"Merged snow profile with SnowPilot: aspect={aspect}, elevation={elevation}, angle={slope_angle}"
+        if snowpit is not None:
+            return (
+                snowpilot_aspect_to_full_direction(snowpit.core_info.location.aspect),
+                str(int(snowpit.core_info.location.elevation[0])),
+                str(snowpit.core_info.location.slope_angle[0]),
             )
-        except Exception as e:
-            logger.exception("Error parsing Snow Pilot XML: %s", e)
-            return None, None, None
         return aspect, elevation, slope_angle
 
     def get_avalanche_problem(
@@ -259,20 +244,25 @@ class UtahScraper(BaseScraper):
                 values.append(sib.get_text(strip=True))
         return values
 
-    def _get_base_info(self, web_url: str, web_access: BeautifulSoup) -> dict[str, Any]:
+    def _get_base_info(
+        self, web_url: str, snowpit=None, web_access: BeautifulSoup = None
+    ) -> dict[str, Any]:
         """
         Extract base information common to all report types.
 
         Args:
             web_url: URL of the observation/avalanche page.
+            snowpit: Optional snowpit data.
             web_access: BeautifulSoup object of the page.
 
         Returns:
             dict: Base information dictionary including location, region, and geography.
         """
-        longitude, latitude = self.get_lat_lon(web_access)
-        parent_region, subregion = self.get_region(web_access)
-        aspect, elevation, slope_angle = self.get_snow_profile(web_access)
+        longitude, latitude = self.get_lat_lon(web_access=web_access, snowpit=snowpit)
+        parent_region, subregion = self.get_region(web_access=web_access)
+        aspect, elevation, slope_angle = self.get_snow_profile(
+            web_access=web_access, snowpit=snowpit
+        )
         base_info = {
             "report_id": web_url.split("/")[-1],
             "state_id": 45,
@@ -312,11 +302,13 @@ class UtahScraper(BaseScraper):
         """
         logger.debug(f"Normalizing avalanche report: {web_url}")
 
-        base_info = self._get_base_info(web_url, web_access)
+        # Check to see if there is a SnowPilot Profile
+        snowpit = self.get_snowpilot_link(web_access)
+
+        base_info = self._get_base_info(web_url, snowpit=snowpit, web_access=web_access)
         depth_raw = self.get_field_value(web_access, "Depth")
         width_raw = self.get_field_value(web_access, "Width")
         vertical_raw = self.get_field_value(web_access, "Vertical")
-
         avalanche_information = {
             "report_id": web_url.split("/")[-1],
             "avalanche_date": datetime.strptime(
@@ -357,7 +349,11 @@ class UtahScraper(BaseScraper):
             tuple: (base_info dict, snow_observations dict)
         """
         logger.debug(f"Normalizing observation: {web_url}")
-        base_info = self._get_base_info(web_url, web_access)
+
+        # Check to see if there is a SnowPilot Profile
+        snowpit = self.get_snowpilot_link(web_access)
+
+        base_info = self._get_base_info(web_url, snowpit=snowpit, web_access=web_access)
         problem1, trend1 = self.get_avalanche_problem(index=1, web_access=web_access)
         problem2, trend2 = self.get_avalanche_problem(index=2, web_access=web_access)
         snow_observations = {
@@ -396,6 +392,7 @@ class UtahScraper(BaseScraper):
             ValueError: If an unsupported report type is encountered.
         """
         logger.info(f"Fetching data for {self.year}-{self.month}-{self.day}")
+        # TODO: figure out what to do when we have multiple pages of information
         table_links = self.extract_report_links()
 
         for link in table_links:
@@ -406,20 +403,22 @@ class UtahScraper(BaseScraper):
                 web_access = BeautifulSoup(
                     self.session.get(page_url, timeout=10).text, features="html.parser"
                 )
-                first_word = link.split("/")[1]
+                first_word = link.split("/")[-2]
+
                 if first_word == "avalanche":
                     data = self._normalize_avalanche(page_url, web_access)
-                    DatabaseManager().insert_report(data[0], data[1], "avalanche")
+                    self.db.insert_report(data[0], data[1], "avalanche")
                 elif first_word == "observation":
                     data = self._normalize_observation(page_url, web_access)
-                    print(f"Inserting observation report: {data[0]['report_id']}")
-                    DatabaseManager().insert_report(data[0], data[1], "observation")
+                    self.db.insert_report(data[0], data[1], "observation")
                 else:
                     logger.error(f"Unsupported report type: {first_word}")
                     raise ValueError(f"{first_word} data is not currently supported")
+
             except requests.RequestException as e:
                 logger.error(f"Failed to fetch {page_url}: {e}")
                 raise NetworkError(page_url, "Could not reach report page")
+
         return table_links
 
     def extract_report_links(self) -> list[str]:

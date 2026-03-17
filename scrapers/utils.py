@@ -48,3 +48,17 @@ def clean_numeric(value: str | None) -> int | None:
         return None
     cleaned = re.sub(r"[\[\],'`\"]", "", value)
     return int(cleaned) if cleaned else None
+
+
+def snowpilot_aspect_to_full_direction(snowpilot_aspect: str) -> str:
+    aspect_mapping = {
+        "North": "N",
+        "Northeast": "NE",
+        "East": "E",
+        "Southeast": "SE",
+        "South": "S",
+        "Southwest": "SW",
+        "West": "W",
+        "Northwest": "NW",
+    }
+    return aspect_mapping.get(snowpilot_aspect, snowpilot_aspect)

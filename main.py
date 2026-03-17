@@ -6,9 +6,10 @@ to collect observation and avalanche data for analysis.
 
 import logging
 import sys
-from scrapers.utils import get_yesterday_date
 from scrapers.utah_scraper import UtahScraper
 from scrapers.exceptions import ScraperError
+from scrapers.utils import get_yesterday_date
+
 
 # Configure logging
 logging.basicConfig(
@@ -26,9 +27,7 @@ if __name__ == "__main__":
     try:
         logger.info("Starting Backcountry Safety scraper")
         utah = UtahScraper(get_yesterday_date())
-        data = utah.get_data()
-        print(data)
-        logger.info(f"{len(data)} reports were collected for {get_yesterday_date()}")
+        logger.info(f"{len(utah.get_data())} reports were collected for {get_yesterday_date()}")
 
     except ScraperError as e:
         logger.error(f"Scraper error: {e}")

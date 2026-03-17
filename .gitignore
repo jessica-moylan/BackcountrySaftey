@@ -1,6 +1,6 @@
 # pixi environments
 .pixi
-.lock
+*.lock
 
 __pycache__/
 *.log

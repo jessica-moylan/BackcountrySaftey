@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 from database.db_manager import DatabaseManager
 
+
 """
 Database initialization and setup script.
 
