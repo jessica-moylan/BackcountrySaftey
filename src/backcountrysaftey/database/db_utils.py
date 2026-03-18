@@ -2,12 +2,13 @@ import os
 import psycopg
 
 DATABASE = {
-    'dbname': 'gis',
-    'user': os.getenv("POSTGRES_USER"),
-    'password': os.getenv("POSTGRES_PASSWORD"),
-    'host': 'localhost',
-    'port': 5432,
+    "dbname": "gis",
+    "user": os.getenv("POSTGRES_USER"),
+    "password": os.getenv("POSTGRES_PASSWORD"),
+    "host": "localhost",
+    "port": 5432,
 }
+
 
 def get_all_in_region(region_id: int = 4):
     """Fetch all records from the specified region."""
