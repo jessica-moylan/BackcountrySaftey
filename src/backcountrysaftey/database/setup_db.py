@@ -1,17 +1,18 @@
 import logging
 import sys
 from pathlib import Path
-from database.db_manager import DatabaseManager
+
+# Support running this script directly while keeping package-based imports.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from backcountrysaftey.database.db_manager import DatabaseManager
 
 
 """
 Database initialization and setup script.
 
-Run using pixi run python database/setup_db.py
+Run using pixi run python src/backcountrysaftey/database/setup_db.py
 """
-
-# Add parent directory to path to import database module
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 logging.basicConfig(
     level=logging.INFO,
