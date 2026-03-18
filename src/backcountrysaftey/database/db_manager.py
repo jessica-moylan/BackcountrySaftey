@@ -1,7 +1,7 @@
 import logging
 from contextlib import contextmanager
 from typing import Any
-import psycopg2
+import psycopg
 import os
 from dotenv import load_dotenv
 
@@ -33,7 +33,7 @@ class DatabaseManager:
         self.conn_params = {
             "host": host,
             "port": port,
-            "database": database,
+            "dbname": database,
             "user": user,
             "password": password,
         }
@@ -44,7 +44,7 @@ class DatabaseManager:
         """Context manager for database connections.
 
         Yields:
-            psycopg2.connection: Active database connection
+            psycopg.connection: Active database connection
 
         Example:
             with db.get_connection() as conn:
@@ -53,7 +53,7 @@ class DatabaseManager:
         """
         conn = None
         try:
-            conn = psycopg2.connect(**self.conn_params)
+            conn = psycopg.connect(**self.conn_params)
             yield conn
             conn.commit()
         except Exception as e:

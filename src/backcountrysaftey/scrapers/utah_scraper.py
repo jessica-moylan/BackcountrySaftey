@@ -11,8 +11,7 @@ from snowpylot import caaml_url_parser
 from .scraper_base import BaseScraper
 from .exceptions import NetworkError
 from .utils import convert_to_inches, clean_numeric, snowpilot_aspect_to_full_direction
-
-from database.db_manager import DatabaseManager
+from ..database.db_manager import DatabaseManager
 
 logger = logging.getLogger(__name__)
 
